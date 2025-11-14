@@ -54,3 +54,7 @@ clickhouse-data/
 # Kafka data (if stored locally)
 kafka-data/
 
+# Kafka Connect plugins (downloaded connectors)
+kafka-connect/plugins/*.jar
+kafka-connect/plugins/*.zip
+

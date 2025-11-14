@@ -1,0 +1,27 @@
+{
+  "name": "clickhouse-sink-users",
+  "config": {
+    "connector.class": "com.clickhouse.kafka.connect.ClickHouseSinkConnector",
+    "tasks.max": "1",
+    "topics": "users-topic",
+    "hostname": "clickhouse",
+    "port": "8123",
+    "clickhouse.server.url": "http://admin:admin123@clickhouse:8123?database=test",
+    "clickhouse.database": "test",
+    "clickhouse.username": "admin",
+    "clickhouse.password": "admin123",
+    "clickhouse.table": "users",
+    "clickhouse.table.engine": "MergeTree",
+    "clickhouse.table.order.by": "id",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "transforms": "extractData",
+    "transforms.extractData.type": "org.apache.kafka.connect.transforms.ExtractField$Value",
+    "transforms.extractData.field": "data",
+    "errors.tolerance": "all",
+    "errors.log.enable": "true",
+    "errors.log.include.messages": "true"
+  }
+}
