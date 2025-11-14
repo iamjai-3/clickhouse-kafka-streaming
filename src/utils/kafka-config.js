@@ -88,38 +88,25 @@ function createConsumer(groupId = CONSUMER_GROUP_ID) {
 }
 
 // Wait for group coordinator to be available (handles startup timing issues)
-async function waitForGroupCoordinator(consumer, maxRetries = 15, initialDelay = 1000) {
-  let delay = initialDelay;
-
+async function waitForGroupCoordinator(consumer, maxRetries = 15, delay = 1000) {
   for (let i = 0; i < maxRetries; i++) {
     try {
-      // Try to get group metadata - this will fail if coordinator isn't ready
       await consumer.describeGroup();
       logger.info("✅ Group coordinator is available");
       return true;
     } catch (error) {
-      const errorMsg = error.message ?? "";
-      if (
-        errorMsg.includes("group coordinator") ||
-        errorMsg.includes("coordinator") ||
-        errorMsg.includes("not available") ||
-        errorMsg.includes("COORDINATOR_NOT_AVAILABLE")
-      ) {
+      const isCoordinatorError = /coordinator|not available/i.test(error.message ?? "");
+
+      if (!isCoordinatorError || i === maxRetries - 1) {
         if (i === maxRetries - 1) {
-          logger.warn("⚠️  Group coordinator not available after retries, continuing anyway...", {
-            attempts: maxRetries,
-          });
-          return false; // Continue anyway - might work on first message
+          logger.warn("Group coordinator not available, continuing anyway...");
         }
-        logger.info(`⏳ Waiting for group coordinator... (${i + 1}/${maxRetries})`);
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        // Exponential backoff with max cap
-        delay = Math.min(delay * 1.5, 5000);
-      } else {
-        // Different error - coordinator might be ready or different issue
-        logger.info("✅ Group coordinator check completed");
-        return true;
+        return !isCoordinatorError;
       }
+
+      logger.info(`⏳ Waiting for group coordinator... (${i + 1}/${maxRetries})`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      delay = Math.min(delay * 1.5, 5000);
     }
   }
   return false;

@@ -41,7 +41,9 @@ npm run consumer
 The consumer will:
 
 - Connect to Kafka
-- Initialize ClickHouse tables (processed_events, migration logs)
+- Create Kafka topics if they don't exist
+- Initialize ClickHouse tables (processed_events, migration_logs)
+- Wait for group coordinator to be ready
 - Start listening for messages
 
 ## 5. Send Sample Data
@@ -82,15 +84,19 @@ curl -u admin:admin123 "http://localhost:8123?query=SELECT * FROM migration_logs
 ### Check Logs
 
 ```bash
-# View combined logs
+# View combined logs (batch-level summaries)
 tail -f logs/combined.log
 
-# View error logs
+# View error logs only
 tail -f logs/error.log
-
-# View table-specific logs
-tail -f logs/users.log
 ```
+
+**Note**: Logs show batch-level summaries, not individual record logs. Each batch log includes:
+
+- Total messages processed
+- Success/failure/duplicate counts
+- Processing time
+- Table-level statistics
 
 ## 7. Test Idempotency
 
@@ -100,17 +106,84 @@ Run the producer again - duplicate messages should be skipped:
 npm run producer
 ```
 
-Check the logs - you should see "skip_duplicate" messages.
+Check the logs - you should see `duplicateCount` in batch summaries. Duplicate messages are automatically skipped and counted in the batch statistics.
 
 ## 8. Test DLQ
 
-To test DLQ, you can send invalid data. The consumer will:
+The Dead Letter Queue (DLQ) captures messages that fail validation or processing. Here's how to test it:
 
-1. Validate the message (fail validation)
-2. Send to DLQ topic
-3. Log the error
+### Method 1: Use the DLQ Test Script (Recommended)
 
-Check DLQ in Kafka UI: http://localhost:8080
+Run the built-in test script that sends 15 different types of invalid messages:
+
+```bash
+npm run test-dlq
+```
+
+This script sends various invalid messages:
+
+- Invalid table names
+- Missing required fields
+- Invalid data types
+- Invalid email formats
+- Negative numbers where positive required
+- Invalid enum values
+- Zero/negative quantities
+- Out-of-range values
+
+### Method 2: Manual Testing
+
+You can also manually send invalid messages using Kafka CLI or Kafka UI.
+
+**Example invalid message:**
+
+```json
+{
+  "table": "users",
+  "data": {
+    "id": 999,
+    "email": "invalid-email"
+  }
+}
+```
+
+### Verify DLQ Messages
+
+1. **Check Consumer Logs:**
+
+   ```bash
+   # View batch summaries with failures
+   tail -f logs/combined.log | grep "failureCount"
+
+   # View error logs
+   tail -f logs/error.log
+   ```
+
+2. **Check Kafka UI:**
+
+   - Open http://localhost:8080
+   - Navigate to **Topics** → `dlq-topic`
+   - Click **Messages** to view failed messages
+   - Each DLQ message contains:
+     - `originalMessage`: The original failed message
+     - `error`: Error details (message and stack trace)
+     - `reason`: Failure reason (`validation_error`, `processing_error`, etc.)
+     - `timestamp`: When the message was sent to DLQ
+
+3. **Check Batch Logs:**
+   ```bash
+   tail -f logs/combined.log
+   ```
+   Look for batch summaries with `failureCount > 0` and `tableStats` showing failures.
+
+### What Happens When a Message Fails?
+
+1. Consumer receives the message
+2. Validation fails (Zod schema validation)
+3. Error is logged to `error.log`
+4. Message is sent to `dlq-topic` with error details via `sendToDLQ()`
+5. Batch summary shows the failure count
+6. Processing continues with other messages
 
 ## Monitoring
 

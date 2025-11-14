@@ -8,7 +8,8 @@
     "seed": "node seed-clickhouse.js",
     "producer": "node src/producer.js",
     "consumer": "node src/consumer.js",
-    "start": "node src/consumer.js"
+    "start": "node src/consumer.js",
+    "test-dlq": "node src/test-dlq.js"
   },
   "keywords": [],
   "author": "",

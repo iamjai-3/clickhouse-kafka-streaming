@@ -9,9 +9,10 @@ A production-ready streaming pipeline that consumes data from Kafka, validates i
 - ✅ **ClickHouse Integration**: Efficient data insertion with idempotency
 - ✅ **Idempotency**: Prevents duplicate inserts using processed_events table
 - ✅ **Dead Letter Queue (DLQ)**: Failed messages are sent to DLQ for reprocessing
-- ✅ **Comprehensive Logging**: Winston logger with table-specific log files
+- ✅ **Clean Logging**: Winston logger with batch-level summaries (error.log + combined.log)
 - ✅ **Migration Logs**: Track all data migrations in ClickHouse
-- ✅ **High Throughput**: Batch processing and optimized Kafka consumer settings
+- ✅ **High Throughput**: Batch processing with aggregated logging and optimized Kafka consumer settings
+- ✅ **Auto Topic Creation**: Topics are automatically created on consumer startup
 - ✅ **Error Handling**: Robust error handling with retries and DLQ
 
 ## Architecture
@@ -106,6 +107,9 @@ PRODUCER_ORDERS_COUNT=20     # Default: 20
 # Logging
 LOG_LEVEL=info
 NODE_ENV=development
+
+# KafkaJS (auto-set, but can override)
+KAFKAJS_NO_PARTITIONER_WARNING=1
 ```
 
 ### Producer Configuration
@@ -126,10 +130,12 @@ PRODUCER_ORDERS_COUNT=200
 
 ## Topics
 
-- `users-topic`: User data messages
-- `products-topic`: Product data messages
-- `orders-topic`: Order data messages
-- `dlq-topic`: Dead Letter Queue for failed messages
+Topics are automatically created when the consumer starts:
+
+- `users-topic`: User data messages (3 partitions)
+- `products-topic`: Product data messages (3 partitions)
+- `orders-topic`: Order data messages (3 partitions)
+- `dlq-topic`: Dead Letter Queue for failed messages (3 partitions)
 
 ## Database Tables
 
@@ -148,11 +154,32 @@ PRODUCER_ORDERS_COUNT=200
 
 Logs are stored in the `logs/` directory:
 
-- `combined.log`: All logs
+- `combined.log`: All logs with batch-level summaries (no per-record logging)
 - `error.log`: Error logs only
-- `users.log`: User table operations
-- `products.log`: Product table operations
-- `orders.log`: Order table operations
+
+**Log Format**: Batch-level summaries show:
+
+- Total messages processed per batch
+- Success/failure/duplicate counts
+- Processing time
+- Table-level statistics
+
+Example batch log:
+
+```json
+{
+  "message": "Batch processed",
+  "topic": "users-topic",
+  "messageCount": 10,
+  "successCount": 8,
+  "failureCount": 0,
+  "duplicateCount": 2,
+  "processingTimeMs": 150,
+  "tableStats": {
+    "users": { "success": 8, "failure": 0, "duplicate": 2 }
+  }
+}
+```
 
 ## Message Format
 
@@ -175,12 +202,28 @@ The system uses a `processed_events` table to track processed messages. Messages
 
 ## DLQ (Dead Letter Queue)
 
-Failed messages are automatically sent to the `dlq-topic` with:
+Failed messages are automatically sent to the `dlq-topic` via the `sendToDLQ()` function with:
 
-- Original message
-- Error details
-- Failure reason
-- Timestamp
+- `originalMessage`: The original failed message
+- `error`: Error details (message and stack trace)
+- `reason`: Failure reason (`validation_error`, `processing_error`, `connection_error`, `duplicate`, etc.)
+- `timestamp`: When the message was sent to DLQ
+
+### Testing DLQ
+
+Use the built-in test script to send invalid messages:
+
+```bash
+npm run test-dlq
+```
+
+This sends 15 different types of invalid messages (invalid table names, missing fields, wrong data types, etc.) that will fail validation and be routed to DLQ.
+
+**Verify DLQ messages:**
+
+- Check Kafka UI: http://localhost:8080 → Topics → `dlq-topic`
+- Check logs: `tail -f logs/combined.log | grep "failureCount"`
+- Check error logs: `tail -f logs/error.log`
 
 ## Monitoring
 
@@ -221,16 +264,19 @@ Use Kafka UI at http://localhost:8080 to inspect DLQ messages.
 .
 ├── src/
 │   ├── schemas/
-│   │   └── validation.js      # Zod validation schemas
+│   │   └── validation.js         # Zod validation schemas
 │   ├── utils/
-│   │   ├── kafka-config.js    # Kafka configuration
-│   │   ├── clickhouse-client.js # ClickHouse client with idempotency
-│   │   └── logger.js           # Winston logger setup
-│   ├── producer.js            # Kafka producer
-│   └── consumer.js            # Kafka consumer with processing
-├── logs/                      # Application logs
-├── docker-compose.yml         # Docker services
-└── seed-clickhouse.js         # Initial data seeding
+│   │   ├── kafka-config.js       # Kafka configuration & topic management
+│   │   ├── clickhouse-client.js   # ClickHouse client with idempotency
+│   │   └── logger.js              # Winston logger (batch-level logging)
+│   ├── producer.js                # Kafka producer (uses Faker.js)
+│   ├── consumer.js                # Kafka consumer with batch processing
+│   └── test-dlq.js                # DLQ testing script
+├── logs/                          # Application logs (error.log + combined.log)
+├── docker-compose.yml             # Docker services (Kafka + ClickHouse)
+├── seed-clickhouse.js             # Initial data seeding
+├── .env.example                   # Environment variables template
+└── package.json                   # Dependencies & scripts
 ```
 
 ## Troubleshooting
