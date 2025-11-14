@@ -135,7 +135,10 @@ async function insertWithIdempotency(tableName, data, messageId) {
   const isDup = await isDuplicate(messageId, tableName, recordId);
   if (isDup) {
     // Only log migration, no verbose logging for duplicates
-    await logMigration(tableName, recordId, messageId, "duplicate", "skip", null, { reason: "Duplicate message" });
+    await logMigration(tableName, recordId, messageId, "duplicate", "skip", null, {
+      reason: "Duplicate message",
+      data,
+    });
     return { success: false, reason: "duplicate" };
   }
 
@@ -151,12 +154,12 @@ async function insertWithIdempotency(tableName, data, messageId) {
     await recordProcessed(messageId, tableName, recordId);
 
     // Log migration to ClickHouse (for tracking), but no verbose console/file logging
-    await logMigration(tableName, recordId, messageId, "success", "insert", null, {});
+    await logMigration(tableName, recordId, messageId, "success", "insert", null, { data });
 
     return { success: true, recordId };
   } catch (error) {
     logError(tableName, "insert", error, { messageId, recordId });
-    await logMigration(tableName, recordId, messageId, "error", "insert", error.message, {});
+    await logMigration(tableName, recordId, messageId, "error", "insert", error.message, { data });
     throw error;
   }
 }
